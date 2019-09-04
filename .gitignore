@@ -1,0 +1,6 @@
+data/*
+hit_bert/*
+models/*
+original_data/*
+*.pyc
+__pycache__/*
