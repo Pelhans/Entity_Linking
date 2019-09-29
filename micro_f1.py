@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+#,+!/usr/bin/env python3
 # coding=utf-8
 
 """Model dec """
@@ -58,4 +58,4 @@ def decode_ner(line):
     return res
 
 if __name__ == "__main__":
-    micro_f1("./models/test_results.tsv")
+    micro_f1("./models/test_results_epoch_2.tsv")

@@ -14,7 +14,7 @@ import modeling
 from modeling import layer_norm_and_dropout
 import numpy as np
 
-def bert_blstm(bert_config, is_training, input_ids, segment_ids,input_mask,
+def bert_blstm_crf(bert_config, is_training, input_ids, segment_ids,input_mask,
                label_ids, sequence_length, num_labels,  use_one_hot_embeddings):
     """combine bert + blstm + crf_layer
 
@@ -47,8 +47,9 @@ def bert_blstm(bert_config, is_training, input_ids, segment_ids,input_mask,
                     input_mask, segment_ids, use_one_hot_embeddings)
     bert_out = layer_norm_and_dropout(bert_out, 0.5)
 
-    blstm_out = blstm(is_training, bert_out, label_ids, sequence_length, 
-                      num_labels, use_one_hot_embeddings, use_bert=True)
+    y_pred = blstm(is_training, bert_out,  num_labels )
+    blstm_out = crf_layer(y_pred, label_ids, batch_size, 
+                          sequence_length, num_labels, max_seq_length)
     return blstm_out
 
 def weight_variable(shape):
@@ -81,8 +82,7 @@ def bert(bert_config, is_training, input_ids, input_mask,
     output_layer = model.get_sequence_output()
     return output_layer
 
-def blstm(is_training, inputs, label_ids, sequence_length, num_labels, 
-          use_one_hot_embeddings, use_bert=False):
+def blstm(is_training, inputs, num_labels ):
     """BLSTM model"""
 
     batch_size = tf.shape(inputs)[0]
@@ -121,30 +121,31 @@ def blstm(is_training, inputs, label_ids, sequence_length, num_labels,
         output = tf.concat([outputs_fw, outputs_bw], 2)
         output = tf.transpose(output, perm=[1,0,2])
         output = tf.reshape(output, [-1, hidden_size*2])
-        output = layer_norm_and_dropout(output, 0.5)
-#        output = tf.nn.dropout(output, 0.5)
+        if is_training:
+            output = layer_norm_and_dropout(output, 0.5)
 
         with tf.variable_scope('outputs_pred_b'):
             softmax_w = weight_variable([hidden_size*2, num_labels])
             softmax_b = bias_variable([num_labels])
             y_pred = tf.matmul(output, softmax_w) + softmax_b
 
+    return y_pred
+
+def crf_layer(y_pred, label_ids, batch_size, sequence_length, num_labels, max_seq_length):
+
     sequence_length = tf.squeeze(sequence_length)
 
     logits = tf.reshape(y_pred, [-1, max_seq_length, num_labels])
-    loss, trans = crf_layer(logits, num_labels, label_ids,
+    loss, trans = _crf_layer(logits, num_labels, label_ids,
                             length=sequence_length, name="crf_bio")
     
     sequence_length = tf.reshape(sequence_length, [batch_size])
     pred_ids, _ = crf.crf_decode(potentials=logits, transition_params=trans,
                                  sequence_length=sequence_length)
 
-    # Not used
-    per_example_loss = loss
-
     return loss, loss, logits, pred_ids
 
-def crf_layer(logits, num_labels, label_ids, length, name):
+def _crf_layer(logits, num_labels, label_ids, length, name):
     """Calculate the likelihood loss function with CRF layer"""
 
     with tf.variable_scope(name):

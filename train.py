@@ -212,7 +212,7 @@ def  model_fn_builder(bert_config, num_labels, init_checkpoint, learning_rate, n
             is_real_example = tf.ones(tf.shape(label_ids)[0], dtype=tf.float32)
         is_training = (mode == "train")
 
-        (total_loss, per_example_loss, logits, pred_ids) = bert_blstm(
+        (total_loss, per_example_loss, logits, pred_ids) = bert_blstm_crf(
             bert_config, is_training, input_ids, segment_ids, input_mask, 
             label_ids, sequence_length, num_labels, use_one_hot_embeddings)
 
