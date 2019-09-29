@@ -46,8 +46,8 @@ flags.DEFINE_integer("train_batch_size", 32, "train batch size")
 flags.DEFINE_integer("eval_batch_size", 16, "eval batch size")
 flags.DEFINE_integer("predict_batch_size", 16, "predict batch size")
 
-flags.DEFINE_float("learning_rate", 1e-5, "learning rate")
-flags.DEFINE_integer("num_train_epochs", 10,
+flags.DEFINE_float("learning_rate", 5e-5, "learning rate")
+flags.DEFINE_integer("num_train_epochs", 5,
                      "train epoch, for NER task, 3 is enough")
 
 flags.DEFINE_integer("save_checkpoints_steps", 2000, 
@@ -212,7 +212,11 @@ def  model_fn_builder(bert_config, num_labels, init_checkpoint, learning_rate, n
             is_real_example = tf.ones(tf.shape(label_ids)[0], dtype=tf.float32)
         is_training = (mode == "train")
 
-        (total_loss, per_example_loss, logits, pred_ids) = bert_blstm_crf(
+#        (total_loss, per_example_loss, logits, pred_ids) = bert_blstm_crf(
+#            bert_config, is_training, input_ids, segment_ids, input_mask, 
+#            label_ids, sequence_length, num_labels, use_one_hot_embeddings)
+
+        (total_loss, per_example_loss, logits, pred_ids) = bert_crf(
             bert_config, is_training, input_ids, segment_ids, input_mask, 
             label_ids, sequence_length, num_labels, use_one_hot_embeddings)
 
@@ -470,7 +474,8 @@ def main(_):
 
 #    if FLAGS.do_train:
     train_file = os.path.join(FLAGS.output_dir, "train.tf_record")
-    file_based_convert_examples_to_features(train_examples, label_list, FLAGS.max_seq_length, train_file)
+    if not os.path.exists(train_file):
+        file_based_convert_examples_to_features(train_examples, label_list, FLAGS.max_seq_length, train_file)
     tf.logging.info("***** Running training *****")
     tf.logging.info("  Num examples = %d", len(train_examples))
     tf.logging.info("  Batch size = %d", FLAGS.train_batch_size)
@@ -485,7 +490,8 @@ def main(_):
     eval_examples = processor.get_dev_examples(FLAGS.data_dir)
     num_actual_eval_examples = len(eval_examples) 
     eval_file = os.path.join(FLAGS.output_dir, "eval.tf_record")
-    file_based_convert_examples_to_features(eval_examples, label_list, FLAGS.max_seq_length, eval_file)
+    if not os.path.exists(eval_file):
+        file_based_convert_examples_to_features(eval_examples, label_list, FLAGS.max_seq_length, eval_file)
     tf.logging.info("***** Running evaluation *****")
     tf.logging.info("  Num examples = %d (%d actual, %d padding)",
                    len(eval_examples), num_actual_eval_examples,
@@ -512,8 +518,9 @@ def main(_):
     predict_examples = processor.get_test_examples(FLAGS.data_dir)
     num_actual_predict_examples = len(predict_examples)
     predict_file = os.path.join(FLAGS.output_dir, "predict.tf_record")
-    file_based_convert_examples_to_features(predict_examples, label_list,
-                                           FLAGS.max_seq_length, predict_file)
+    if not os.path.exists(predict_file):
+        file_based_convert_examples_to_features(predict_examples, label_list,
+                                               FLAGS.max_seq_length, predict_file)
     tf.logging.info("***** Running prediction*****")
     tf.logging.info("  Num examples = %d (%d actual, %d padding)",
                    len(predict_examples), num_actual_predict_examples,

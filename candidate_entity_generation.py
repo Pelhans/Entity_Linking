@@ -19,8 +19,12 @@ parser.add_argument("--kb_data_path", type=str, default="./original_data/kb_data
 args = parser.parse_args()
 
 
-def gen_candidate_entity(entity):
-    """ Candidate entity generation """
+def gen_candidate_entity(entity, mode, dice_value=0.8, edit_value=1):
+    """ Candidate entity generation 
+    :param mode: one of "exact_match"/ "exact_dice"/ "exact_dice_edit"
+        if mode == "exact_dice", you must set the value of dice
+        if mode == "exact_dice_edit", you must set the value of dice and edit
+    """
     if not isinstance(entity, str):
         entity = str(entity)
     if not os.path.exists(args.name_dict_path):
@@ -35,12 +39,16 @@ def gen_candidate_entity(entity):
     #    2) Dice coefficient is greater than 0.8 
     candidate_id = []
     for  cand_entity in name_dict:
-        if entity == cand_entity or dice(entity, cand_entity) >= 0.8 or \
-            edit_distance(entity, cand_entity) <= 1:
+        if mode == "exact_match" and entity == cand_entity:
+            candidate_id.extend(name_dict[cand_entity])
+        elif mode == "exact_dice" and dice(entity, cand_entity) >= dice_value:
+            candidate_id.extend(name_dict[cand_entity])
+        elif mode == "exact_dice_edit" and dice(entity, cand_entity) >= dice_value or \
+                edit_distance(entity, cand_entity) <= edit_value:
             candidate_id.extend(name_dict[cand_entity])
     return candidate_id
 
 if __name__ == "__main__":
     start = time.time()
-    print(" Candidate entity ID: ", gen_candidate_entity("香港周永康"))
+    print(" Candidate entity ID: ", gen_candidate_entity("香港周永康", mode="exact_match"))
     print("time: ", time.time()-start, " s")
