@@ -9,6 +9,7 @@ from __future__ import print_function
 import tensorflow as tf
 import os
 import re
+import json
 import random
 import collections
 import optimization
@@ -74,7 +75,11 @@ class InputExample(object):
         """
 
         self.guid = guid
-        self.text = text
+        self.textA = textA
+        self.textB = textB
+        self.candi_entity = candi_entity
+        self.offsetA = self.offsetA
+        self.subject = self.ubject
         self.label = label
 
 class InputFeatures(object):
@@ -84,6 +89,8 @@ class InputFeatures(object):
                 input_ids,
                 input_mask,
                 segment_ids,
+                offsetA,
+                offsetB,
                 label_ids,
                 sequence_length,
                 is_real_example=True):
@@ -103,6 +110,8 @@ class InputFeatures(object):
         self.input_ids = input_ids
         self.input_mask = input_mask
         self.segment_ids = segment_ids
+        self.offsetA = offsetA
+        self.offsetB = offsetB
         self.label_ids = label_ids
         self.sequence_length = sequence_length
         self.is_real_example = is_real_example
@@ -117,19 +126,19 @@ class NERProcessor(object):
 
     def get_train_examples(self, data_dir):
         """Gets a collection of `InputExample`s for the train set."""
-        return self._create_examples(read_dataset("./data/ner/train.csv"), "train")
+        return self._create_examples(read_dataset("./data/disambi/train.txt"), "train")
 
     def get_dev_examples(self, data_dir):
         """Gets a collection of `InputExample`s for the dev set."""
-        return self._create_examples(read_dataset("./data/ner/dev.csv"), "dev")
+        return self._create_examples(read_dataset("./data/disambi/dev.txt"), "dev")
 
     def get_test_examples(self, data_dir):
         """Gets a collection of `InputExample`s for the test set."""
-        return self._create_examples(read_dataset("./data/ner/test.csv"), "test")
+        return self._create_examples(read_dataset("./data/disambi/test.txt"), "test")
 
     def get_labels(self):
         """Gets thie list of BIO labels for this dataset"""
-        return ["O", "B", "I"]
+        return [0, 1]
 
     def _create_examples(self, lines, set_type="test"):
         """Creates examples for the training and dev sets.
@@ -140,11 +149,13 @@ class NERProcessor(object):
         """
         examples = []
         for (i, line) in enumerate(lines):
-            line = line.strip().split("\t")
+            line = json.loads(line.strip())
+#            line = line.strip().split("\t")
             guid = "%s-%s" % (set_type, i)
-            label = eval(line[1])
-            text = tokenization.convert_to_unicode(line[0])
-            examples.append(InputExample(guid=guid, text=text, label=label))
+            label = int(line["tag"])
+            textA = tokenization.convert_to_unicode(line["subject"] + "###" + line["candi_text"])
+            textB = tokenization.convert_to_unicode(line["abstract"])
+            examples.append(InputExample(guid=guid, textA=textA, textB=textB, label=label))
         # examples 包含了所有数据的列表, 其中每个数据类型为 InputExample
         # 对于训练数据进行随机打乱
         if set_type == "train":

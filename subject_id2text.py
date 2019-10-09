@@ -14,7 +14,7 @@ def hash_id2abstract(kb_data, id2abstract_pkl):
     id2abstract = {}
     for data in datasets:
         data = eval(data)
-        if len(data["data"]) == 0:
+        if len(data["data"]) == 0 or "object" not in data["data"][0]:
             continue
         if data["data"][0]["predicate"] == "摘要":
             id2abstract[data["subject_id"]] = (data["subject"], data["data"][0]["object"])

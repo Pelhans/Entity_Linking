@@ -3,4 +3,5 @@ hit_bert/*
 models/*
 original_data/*
 *.pyc
+docker_*
 __pycache__/*
