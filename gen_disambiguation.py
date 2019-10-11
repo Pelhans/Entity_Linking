@@ -69,9 +69,9 @@ def gen_disambi(infile, outfile):
             for centity_id in candi_entity:
                 if centity_id not in id2abstract:
                     continue
-                out_line = {"candi_entity": centity_id, "candi_text": candi_text,
-                            "candi_offset": candi_offset}
-                out_line["subject"], out_line["abstract"] = id2abstract[centity_id]
+                out_line = {"query_entity": source_entity, "query_text": candi_text,
+                            "query_offset": candi_offset}
+                out_line["candi_entity"], out_line["candi_abstract"] = id2abstract[centity_id]
                 if centity_id == mention["kb_id"]:
                     out_line["tag"] = 1
                     pos_count += 1
@@ -91,14 +91,15 @@ def divide_set(infile):
     test_writer = codecs.open("./data/disambi/test.txt", "w", "utf-8")
     datasets = read_dataset(infile)
     total_line = int(subprocess.getoutput("wc -l {}".format(infile)).split()[0])
+#    total_line = 10000
     logging.info("total_line: {}".format(total_line))
     for idx, data in enumerate(datasets):
         if idx < 0.8 * total_line:
-            train_writer.write(data + "\n")
+            train_writer.write(data)
         elif idx < 0.9 * total_line:
-            dev_writer.write(data + "\n")
-        else:
-            test_writer.write(data + "\n")
+            dev_writer.write(data)
+        elif idx < total_line:
+            test_writer.write(data)
     logging.info("Done")
 
 if __name__ == "__main__" :

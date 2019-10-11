@@ -77,9 +77,6 @@ class InputExample(object):
         self.guid = guid
         self.textA = textA
         self.textB = textB
-        self.candi_entity = candi_entity
-        self.offsetA = self.offsetA
-        self.subject = self.ubject
         self.label = label
 
 class InputFeatures(object):
@@ -89,8 +86,6 @@ class InputFeatures(object):
                 input_ids,
                 input_mask,
                 segment_ids,
-                offsetA,
-                offsetB,
                 label_ids,
                 sequence_length,
                 is_real_example=True):
@@ -110,8 +105,6 @@ class InputFeatures(object):
         self.input_ids = input_ids
         self.input_mask = input_mask
         self.segment_ids = segment_ids
-        self.offsetA = offsetA
-        self.offsetB = offsetB
         self.label_ids = label_ids
         self.sequence_length = sequence_length
         self.is_real_example = is_real_example
@@ -150,7 +143,6 @@ class NERProcessor(object):
         examples = []
         for (i, line) in enumerate(lines):
             line = json.loads(line.strip())
-#            line = line.strip().split("\t")
             guid = "%s-%s" % (set_type, i)
             label = int(line["tag"])
             textA = tokenization.convert_to_unicode(line["subject"] + "###" + line["candi_text"])

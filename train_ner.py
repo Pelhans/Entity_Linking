@@ -16,8 +16,9 @@ import tokenization
 from tokenization import _is_whitespace 
 from tokenizer import Tokenizer
 from micro_f1 import micro_f1
+import modeling
 from config import *
-from create_model import *
+from create_model import bert_blstm_crf, bert_crf, bert_mlp
 
 flags = tf.flags
 FLAGS = flags.FLAGS
@@ -26,26 +27,28 @@ flags.DEFINE_string("data_dir", "./data/",
                     "train/test data dir")
 flags.DEFINE_string("serving_model_save_path", "./pb_model/",
                     "dir for pb output")
-flags.DEFINE_string("task_name", "ner",
+flags.DEFINE_string("task_name", "disambi",
+                    "different task use different processor")
+flags.DEFINE_bool("sequence_task", False,
                     "different task use different processor")
 flags.DEFINE_string("vocab_file", "./hit_bert/vocab.txt",
                     "path to vocab file")
-flags.DEFINE_string("output_dir", "./models/", "ckpt dir")
+flags.DEFINE_string("output_dir", "./models/disambi/", "ckpt dir")
 flags.DEFINE_string("init_checkpoint", "./hit_bert/bert_model.ckpt",
                     "path to bert model from google or hit")
 flags.DEFINE_string("bert_config_file", "./hit_bert/bert_config.json",
                     "bert config file for ckpt model")
 
-flags.DEFINE_integer("max_seq_length", 52, 
+flags.DEFINE_integer("max_seq_length", 200, 
                      "max sequence length for each sentence")
 
-flags.DEFINE_bool("do_train", False, "excute train steps")
-flags.DEFINE_bool("do_eval", False, "excute eval step")
+flags.DEFINE_bool("do_train", True, "excute train steps")
+flags.DEFINE_bool("do_eval", True, "excute eval step")
 flags.DEFINE_bool("do_predict", True, "excute predict step")
 
-flags.DEFINE_integer("train_batch_size", 64, "train batch size")
-flags.DEFINE_integer("eval_batch_size", 64, "eval batch size")
-flags.DEFINE_integer("predict_batch_size", 64, "predict batch size")
+flags.DEFINE_integer("train_batch_size", 16, "train batch size")
+flags.DEFINE_integer("eval_batch_size", 16, "eval batch size")
+flags.DEFINE_integer("predict_batch_size", 16, "predict batch size")
 
 flags.DEFINE_float("learning_rate", 3e-5, "learning rate")
 flags.DEFINE_integer("num_train_epochs", 5,
@@ -62,7 +65,7 @@ flags.DEFINE_float("warmup_proportion", 0.1,
 class InputExample(object):
     """A single training/test example for simple sequence classification."""
 
-    def __init__(self, guid, text, label):
+    def __init__(self, guid, textA, textB, label):
         """Constructs a InputExample
         
         :param guid: Unique id for example
@@ -75,7 +78,8 @@ class InputExample(object):
         """
 
         self.guid = guid
-        self.text = text
+        self.textA = textA
+        self.textB = textB
         self.label = label
 
 class InputFeatures(object):
@@ -130,7 +134,7 @@ class NERProcessor(object):
 
     def get_labels(self):
         """Gets thie list of BIO labels for this dataset"""
-        return ["O", "B", "I", "TAG"]
+        return ["O", "B", "I"]
 
     def _create_examples(self, lines, set_type="test"):
         """Creates examples for the training and dev sets.
@@ -144,8 +148,51 @@ class NERProcessor(object):
             line = line.split("\t")
             guid = "%s-%s" % (set_type, i)
             label = eval(line[1])
-            text = tokenization.convert_to_unicode(line[0])
-            examples.append(InputExample(guid=guid, text=text, label=label))
+            textA = tokenization.convert_to_unicode(line[0])
+            textB = None
+            examples.append(InputExample(guid=guid, textA=textA, textB=textB, label=label))
+        # examples 包含了所有数据的列表, 其中每个数据类型为 InputExample
+        # 对于训练数据进行随机打乱
+        if set_type == "train":
+            random.shuffle(examples)
+        return examples
+
+class DisambiProcessor(object):
+    """Processor for Query Parsing."""
+
+    def get_train_examples(self, data_dir):
+        """Gets a collection of `InputExample`s for the train set."""
+        return self._create_examples(read_dataset("./data/disambi/train.txt"), "train")
+
+    def get_dev_examples(self, data_dir):
+        """Gets a collection of `InputExample`s for the dev set."""
+        return self._create_examples(read_dataset("./data/disambi/dev.txt"), "dev")
+
+    def get_test_examples(self, data_dir):
+        """Gets a collection of `InputExample`s for the test set."""
+        return self._create_examples(read_dataset("./data/disambi/test.txt"), "test")
+
+    def get_labels(self):
+        """Gets thie list of BIO labels for this dataset"""
+        return [0, 1]
+
+    def _create_examples(self, lines, set_type="test"):
+        """Creates examples for the training and dev sets.
+        :param lines: all input lines from input file
+        :type lines: list
+        :return: a list of InputExample element
+        :rtype: list
+        """
+        examples = []
+        for (i, line) in enumerate(lines):
+            line = eval(line.strip())
+            guid = "%s-%s" % (set_type, i)
+            label = int(line["tag"])
+            textA = "$" + line["query_entity"] + "$" + line["query_text"]
+            textA = tokenization.convert_to_unicode(textA)
+            textB = "$" + line["candi_entity"] + "$" + line["candi_abstract"]
+            textB = tokenization.convert_to_unicode(textB)
+            examples.append(InputExample(guid=guid, textA=textA, textB=textB, label=label))
         # examples 包含了所有数据的列表, 其中每个数据类型为 InputExample
         # 对于训练数据进行随机打乱
         if set_type == "train":
@@ -160,7 +207,7 @@ def file_based_input_fn_builder(input_file, seq_length, is_training, drop_remain
 
     name_to_features = {
         "input_ids": tf.FixedLenFeature([seq_length], tf.int64),
-        "label_ids": tf.FixedLenFeature([seq_length], tf.int64),
+        "label_ids": tf.FixedLenFeature([1], tf.int64),
         "segment_ids": tf.FixedLenFeature([seq_length], tf.int64),
         "input_mask": tf.FixedLenFeature([seq_length], tf.int64),
         "sequence_length": tf.FixedLenFeature([1], tf.int64),
@@ -217,7 +264,11 @@ def  model_fn_builder(bert_config, num_labels, init_checkpoint, learning_rate, n
 #            bert_config, is_training, input_ids, segment_ids, input_mask, 
 #            label_ids, sequence_length, num_labels, use_one_hot_embeddings)
 
-        (total_loss, per_example_loss, logits, pred_ids) = bert_crf(
+#        (total_loss, per_example_loss, logits, pred_ids) = bert_crf(
+#            bert_config, is_training, input_ids, segment_ids, input_mask, 
+#            label_ids, sequence_length, num_labels, use_one_hot_embeddings)
+
+        (total_loss, per_example_loss, logits, pred_ids) = bert_mlp(
             bert_config, is_training, input_ids, segment_ids, input_mask, 
             label_ids, sequence_length, num_labels, use_one_hot_embeddings)
 
@@ -256,7 +307,7 @@ def  model_fn_builder(bert_config, num_labels, init_checkpoint, learning_rate, n
                     "eval_accuracy": accuracy,
                     "eval_loss": loss,
                 }
-            eval_metrics = (metric_fn, [per_example_loss, label_ids, logits, is_real_example])
+
             output_spec = tf.contrib.tpu.TPUEstimatorSpec(
                 mode=mode,
                 loss=total_loss,
@@ -338,7 +389,7 @@ def word2id(vocab_file):
     with open(vocab_file, "r") as vf:
         return {k.strip(): idx for (idx, k) in enumerate(vf.readlines())}
 
-def get_ids_seg(text,tokenizer,max_len=52):
+def get_ids_seg(text,tokenizer):
     '''
     得到bert的输入
     :param text:
@@ -346,18 +397,16 @@ def get_ids_seg(text,tokenizer,max_len=52):
     :param max_len:
     :return:
     '''
-    indices, segments = [], []
-    for ch in text[:max_len-2]:
-        indice, segment = tokenizer.encode(first=ch)
+    indices= []
+    for ch in text:
+        indice, _ = tokenizer.encode(first=ch)
         if len(indice) != 3:
             indices += [100]
-            segments += [0]
         else:
             indices += indice[1:-1]
-            segments += segment[1:-1]
-    segments = [0] + segments + [0]
-    indices = [101] + indices + [102]
-    return indices,segments
+#    segments = [0] + segments + [0]
+#    indices = [101] + indices + [102]
+    return indices
 
 def convert_single_example(ex_index, example, label_map, max_seq_length,
                            wordid_map, tokenizer,  num_words=1, num_unk=1):
@@ -371,47 +420,59 @@ def convert_single_example(ex_index, example, label_map, max_seq_length,
     
     input_ids = []
     # char based
-    sequence =  example.text
-    input_ids, _ = get_ids_seg(sequence, tokenizer)
-    sequence_length = len(input_ids) if len(input_ids) <= max_seq_length else max_seq_length
-#    for w in sequence:
-#        num_words += 1
-#        if w in wordid_map:
-#            input_ids.append(wordid_map[w])
-#        elif _is_whitespace(w):
-#            input_ids.append(wordid_map["[unused1]"])
-#        else:
-#            num_unk += 1
-#            input_ids.append(0)
-    input_mask = [1] * len(input_ids)
-    label_id = [label_map[l] for l in example.label]
-    label_id.insert(0,3)
-    label_id.append(3)
-    segment_ids = [0] * max_seq_length
+    if example.textB is None:
+        input_ids = [101] + get_ids_seg(example.textA, tokenizer) + [102]
+        label_id = [0] + [label_map[l] for l in example.label] + [0]
+        segment_ids = [0] * len(input_ids)
+    else:
+        if len(example.textA) + len(example.textB) + 3 > max_seq_length:
+            if len(example.textA) >= max_seq_length - 3:
+                example.textA = example.textA[:int(max_seq_length/2-3)]
+            if len(example.textB) >= max_seq_length - 3:
+                example.textB = example.textB[:int(max_seq_length/2-3)]
+            if len(example.textA) > len(example.textB):
+                example.textA = example.textA[:(max_seq_length-len(example.textB)-4)]
+            else:
+                example.textB = example.textB[:(max_seq_length-len(example.textB)-4)]
 
+        input_ids = [101] + get_ids_seg(example.textA, tokenizer) + [102] + get_ids_seg(example.textB, tokenizer) + [102]
+        segment_ids = [0] * (len(example.textA) + 2) + [1] * (len(example.textB) + 1)
+        label_id = [int(example.label)]* len(input_ids)
+
+
+#    if FLAGS.sequence_task:
+#        label_id = [0] + [label_map[l] for l in example.label] + [0]
+#    else:
+#        label_id = int(example.label)
+    
+    sequence_length = len(input_ids) if len(input_ids) <= max_seq_length else max_seq_length
+    input_mask = [1] * len(input_ids)
+    
     assert len(label_id) == len(input_ids)
+    assert len(input_ids) == len(segment_ids)
 
     while len(input_ids) < max_seq_length:
         input_ids.append(0)
         input_mask.append(0)
         label_id.append(0)
+        segment_ids.append(0)
 
     input_ids = input_ids[:max_seq_length]
-    label_id = label_id[:max_seq_length]
+    label_id = label_id[:max_seq_length] if FLAGS.sequence_task else [label_id[0]]
     input_mask = input_mask[:max_seq_length]
+    segment_ids = segment_ids[:max_seq_length]
 
     
     assert len(input_ids) == max_seq_length
-    assert len(label_id) == max_seq_length
 
     if ex_index < 5:
         tf.logging.info("*** Example ***")
         tf.logging.info("guid: %s" % (example.guid))
-        tf.logging.info("tokens: %s" % "".join(sequence))
+        tf.logging.info("tokens: %s" % "".join("[CLS]" + example.textA + "[SEP]" +  example.textB + "[SEP]"))
         tf.logging.info("input_ids: %s" % " ".join([str(x) for x in input_ids]))
         tf.logging.info("input_mask: %s" % " ".join([str(x) for x in input_mask]))
         tf.logging.info("segment_ids: %s" % " ".join([str(x) for x in segment_ids]))
-        tf.logging.info("label_ids: %s" % " ".join([str(x) for x in label_id]))
+        tf.logging.info("label_ids: %s" % " ".join([str(x) for x in [label_id]]))
         tf.logging.info("sequence_length: %s" % sequence_length)
 
     feature = InputFeatures(
@@ -446,7 +507,8 @@ def serving_input_receiver_fn():
 def main(_):
     tf.logging.set_verbosity(tf.logging.INFO)
 
-    processors = {"ner": NERProcessor}
+    processors = {"ner": NERProcessor,
+                  "disambi": DisambiProcessor}
 
     tf.gfile.MakeDirs(FLAGS.output_dir)
     task_name = FLAGS.task_name.lower()
@@ -572,21 +634,23 @@ def main(_):
         with tf.gfile.GFile(output_predict_file, "w") as writer:
             num_written_lines = 0
             for (i, prediction) in enumerate(result):
+                pred_ids = [prediction["pred_ids"]]
                 sequence_length = prediction["sequence_length"]
-                len_seq = sequence_length[0]
-                correct += (prediction["label_ids"] == prediction["pred_ids"])[1:len_seq].sum()
+                len_seq = sequence_length[0] if FLAGS.sequence_task else 2
+                correct += (prediction["label_ids"] == pred_ids)[:len_seq+1].sum()
                 total_count += len_seq - 1
-                result = [str(r) for r in  prediction["pred_ids"]][:len_seq+1]
+                result = [str(r) for r in  pred_ids][:len_seq+1]
                 label_ids = [str(l) for l in prediction["label_ids"]][:len_seq+1]
                 if i >= num_actual_predict_examples:
                     break
                 output_line = str(result)  + "###" + str(label_ids) + "\n"
-    
                 writer.write(output_line)
                 num_written_lines += 1
 
         assert num_written_lines == num_actual_predict_examples
         tf.logging.info("*** Accuracy for BIO: {}".format(correct/total_count))
+        if not FLAGS.sequence_task:
+            continue
         _, _, f1 = micro_f1("./models/test_results_epoch_{}.tsv".format(epoch))
         if f1 > best_f1:
             best_f1 = f1

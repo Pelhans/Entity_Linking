@@ -59,31 +59,6 @@ def bert_blstm_crf(bert_config, is_training, input_ids, segment_ids,input_mask,
 
 def bert_crf(bert_config, is_training, input_ids, segment_ids,input_mask,
                label_ids, sequence_length, num_labels,  use_one_hot_embeddings):
-    """combine bert + blstm + crf_layer
-
-    :param bert_config: bert_config from model config file
-    :type bert_config: dict
-    :param is_training: train state
-    :type is_training: bool
-    :param input_ids: input text ids for each char
-    :type input_ids: list
-    :param segment_ids: 0 for first sentence and 1 for second sentence,
-                        for this task, all is 0, length is max_seq_length
-    :type segment_ids: list
-    :param input_mask: mask for sentence to suit bert model,
-                        for this task, all is 1, length is max_seq_length
-    :type input_mask: list
-    :param label_ids: BIO labels ids
-    :type label_ids: list
-    :param sequence_length: sequence length for each input sentence before padding
-    :type sequence_length: list, [lengh_sentence1, 2,..]
-    :param num_labels: nums of BIO labels
-    :type num_labels: int
-    :param use_one_hot_embeddings: wehter use_one_hot_embeddings
-    :type use_one_hot_embeddings: bool
-    :return: total_loss, per_example_loss, logits for ner, pred_ids using viterbi
-    :rtype: tuple
-    """
 
     batch_size = tf.shape(input_ids)[0]
     bert_out = bert(bert_config, is_training, input_ids,
@@ -100,6 +75,30 @@ def bert_crf(bert_config, is_training, input_ids, segment_ids,input_mask,
                           sequence_length, num_labels, max_seq_length, "crf")
     return crf_out
 
+def bert_mlp(bert_config, is_training, input_ids, segment_ids,input_mask,
+               label_ids, sequence_length, num_labels,  use_one_hot_embeddings):
+
+    batch_size = tf.shape(input_ids)[0]
+    bert_out = bert(bert_config, is_training, input_ids,
+                    input_mask, segment_ids, use_one_hot_embeddings, task_type="binary")
+#    hidden_size = tf.shape(bert_out)[-1]
+    hidden_size = 768
+    bert_out = tf.reshape(bert_out, [-1, hidden_size])
+    logits = linear_layer(bert_out, hidden_size, num_labels, "linear")
+    if is_training:
+#        logits = layer_norm_and_dropout(logits, 0.9)
+        logits = layer_norm(logits)
+    else:
+        logits = layer_norm(logits)
+    with tf.variable_scope("loss"):
+#        probabilities = tf.nn.softmax(logits, axis=-1)
+        predictions = tf.argmax(logits, axis=-1, output_type=tf.int32)
+        log_probs = tf.nn.log_softmax(logits, axis=-1)
+        one_hot_labels = tf.one_hot(label_ids, depth=num_labels, dtype=tf.float32)
+        per_example_loss = -tf.reduce_sum(one_hot_labels * log_probs, axis=-1)
+        loss = tf.reduce_mean(per_example_loss)
+    return (loss, loss, logits, predictions)
+
 def weight_variable(shape):
     initial = tf.truncated_normal(shape, stddev=0.1)
     return tf.Variable(initial)
@@ -114,7 +113,7 @@ def lstm_cell(hidden_size):
     return rnn.DropoutWrapper(cell, output_keep_prob=True)
 
 def bert(bert_config, is_training, input_ids, input_mask,
-         segment_ids, use_one_hot_embeddings):
+         segment_ids, use_one_hot_embeddings, task_type="sequence"):
     """Use bert model to get sequence output"""
     model = modeling.BertModel(
         config=bert_config,
@@ -127,7 +126,10 @@ def bert(bert_config, is_training, input_ids, input_mask,
     # get sequence output
     # output_layer's shape [batch_size, sequence_length, hidden_size]
     # where hidden_size is 768
-    output_layer = model.get_sequence_output()
+    if task_type == "sequence":
+        output_layer = model.get_sequence_output()
+    elif task_type == "binary":
+        output_layer = model.get_pooled_output()
     return output_layer
 
 def blstm(is_training, inputs):

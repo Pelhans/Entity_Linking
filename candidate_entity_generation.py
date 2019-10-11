@@ -48,5 +48,5 @@ if __name__ == "__main__":
     name_dict = pkl.load(open("./data/name_dict.pkl", "rb"))
 
     start = time.time()
-    print(" Candidate entity ID: ", gen_candidate_entity("香港周永康", name_dict, mode="exact_dice"))
+    print(" Candidate entity ID: ", gen_candidate_entity("香港周永康", name_dict, mode="exact"))
     print("time: ", time.time()-start, " s")
