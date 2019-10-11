@@ -6,7 +6,7 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
-from gen_ner import read_dataset
+from gen_ner import read_dataset, standard_string
 from collections import defaultdict
 import _pickle as pkl
 from tqdm import tqdm
@@ -16,10 +16,11 @@ def build_name_dict(kb_file, name_pkl):
     datas = read_dataset(kb_file)
     for data in tqdm(datas):
         data = eval(data)
-        subject = data["subject"]
+        subject = standard_string(data["subject"])
         subject_id = data["subject_id"]
         name_dict[subject].append(subject_id)
         for alias in data["alias"]:
+            alias = standard_string(alias)
             if alias != subject:
                 name_dict[alias].append(subject_id)
 

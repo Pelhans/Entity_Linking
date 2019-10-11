@@ -11,7 +11,7 @@ from tensorflow.contrib import rnn
 from tensorflow.contrib import crf
 from config import *
 import modeling
-from modeling import layer_norm_and_dropout
+from modeling import layer_norm_and_dropout, layer_norm
 import numpy as np
 
 def bert_blstm_crf(bert_config, is_training, input_ids, segment_ids,input_mask,
@@ -48,6 +48,8 @@ def bert_blstm_crf(bert_config, is_training, input_ids, segment_ids,input_mask,
     y_pred = blstm(is_training, bert_out)
     if is_training:
         y_pred = layer_norm_and_dropout(y_pred, 0.5)
+    else:
+        bert_out = layer_norm(bert_out)
     hidden_size = tf.shape(y_pred)[-1]
     blstm_out = linear_layer(y_pred, hidden_size, num_labels, "linear")
     crf_out = crf_layer(blstm_out, label_ids, batch_size, 
@@ -90,6 +92,8 @@ def bert_crf(bert_config, is_training, input_ids, segment_ids,input_mask,
     hidden_size = 768
     if is_training:
         bert_out = layer_norm_and_dropout(bert_out, 0.5)
+    else:
+        bert_out = layer_norm(bert_out)
     bert_out = tf.reshape(bert_out, [-1, hidden_size])
     linear_out = linear_layer(bert_out, hidden_size, num_labels, "linear")
     crf_out = crf_layer(linear_out, label_ids, batch_size, 

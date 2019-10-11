@@ -101,7 +101,6 @@ def divide_set(infile):
             test_writer.write(data + "\n")
     logging.info("Done")
 
-
 if __name__ == "__main__" :
     logging.basicConfig(level = logging.DEBUG,
                        format = '%(asctime)s - %(pathname)s[line:%(lineno)d] - %(levelname)s: %(message)s')

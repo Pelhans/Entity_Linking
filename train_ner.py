@@ -14,6 +14,7 @@ import collections
 import optimization
 import tokenization
 from tokenization import _is_whitespace 
+from tokenizer import Tokenizer
 from micro_f1 import micro_f1
 from config import *
 from create_model import *
@@ -35,18 +36,18 @@ flags.DEFINE_string("init_checkpoint", "./hit_bert/bert_model.ckpt",
 flags.DEFINE_string("bert_config_file", "./hit_bert/bert_config.json",
                     "bert config file for ckpt model")
 
-flags.DEFINE_integer("max_seq_length", 100, 
+flags.DEFINE_integer("max_seq_length", 52, 
                      "max sequence length for each sentence")
 
-flags.DEFINE_bool("do_train", True, "excute train steps")
-flags.DEFINE_bool("do_eval", True, "excute eval step")
+flags.DEFINE_bool("do_train", False, "excute train steps")
+flags.DEFINE_bool("do_eval", False, "excute eval step")
 flags.DEFINE_bool("do_predict", True, "excute predict step")
 
-flags.DEFINE_integer("train_batch_size", 32, "train batch size")
-flags.DEFINE_integer("eval_batch_size", 16, "eval batch size")
-flags.DEFINE_integer("predict_batch_size", 16, "predict batch size")
+flags.DEFINE_integer("train_batch_size", 64, "train batch size")
+flags.DEFINE_integer("eval_batch_size", 64, "eval batch size")
+flags.DEFINE_integer("predict_batch_size", 64, "predict batch size")
 
-flags.DEFINE_float("learning_rate", 5e-5, "learning rate")
+flags.DEFINE_float("learning_rate", 3e-5, "learning rate")
 flags.DEFINE_integer("num_train_epochs", 5,
                      "train epoch, for NER task, 3 is enough")
 
@@ -129,7 +130,7 @@ class NERProcessor(object):
 
     def get_labels(self):
         """Gets thie list of BIO labels for this dataset"""
-        return ["O", "B", "I"]
+        return ["O", "B", "I", "TAG"]
 
     def _create_examples(self, lines, set_type="test"):
         """Creates examples for the training and dev sets.
@@ -140,7 +141,7 @@ class NERProcessor(object):
         """
         examples = []
         for (i, line) in enumerate(lines):
-            line = line.strip().split("\t")
+            line = line.split("\t")
             guid = "%s-%s" % (set_type, i)
             label = eval(line[1])
             text = tokenization.convert_to_unicode(line[0])
@@ -305,11 +306,16 @@ def file_based_convert_examples_to_features(examples, label_list,
     wordid_map = word2id(FLAGS.vocab_file)
     num_words = 0
     num_unk = 0
+    tokenizer = Tokenizer(wordid_map)
+    label_map = {}
+    for (i, label) in enumerate(label_list):
+        label_map[label] = i 
+
     for (ex_index, example) in enumerate(examples):
         if ex_index % 10000 == 0:
             tf.logging.info("Writing example %d of %d" % (ex_index, len(examples)))
 
-        feature, num_words, num_unk = convert_single_example(ex_index, example, label_list, max_seq_length, wordid_map, num_words, num_unk)
+        feature, num_words, num_unk = convert_single_example(ex_index, example, label_map, max_seq_length, wordid_map, tokenizer, num_words, num_unk)
         def create_int_feature(values):
             f = tf.train.Feature(int64_list=tf.train.Int64List(value=list(values)))
             return f
@@ -324,19 +330,37 @@ def file_based_convert_examples_to_features(examples, label_list,
 
         tf_example = tf.train.Example(features=tf.train.Features(feature=features))
         writer.write(tf_example.SerializeToString())
-    tf.logging.info("Total words: {}\nTotal unk: {}\nunk rate: {}".format(
-        num_words, num_unk, num_unk/num_words))
+#    tf.logging.info("Total words: {}\nTotal unk: {}\nunk rate: {}".format(
+#        num_words, num_unk, num_unk/num_words))
     writer.close()
 
 def word2id(vocab_file):
     with open(vocab_file, "r") as vf:
         return {k.strip(): idx for (idx, k) in enumerate(vf.readlines())}
 
-def convert_single_example(ex_index, example, label_list, max_seq_length,
-                           wordid_map,  num_words=1, num_unk=1):
-    label_map = {}
-    for (i, label) in enumerate(label_list):
-        label_map[label] = i 
+def get_ids_seg(text,tokenizer,max_len=52):
+    '''
+    得到bert的输入
+    :param text:
+    :param tokenizer:
+    :param max_len:
+    :return:
+    '''
+    indices, segments = [], []
+    for ch in text[:max_len-2]:
+        indice, segment = tokenizer.encode(first=ch)
+        if len(indice) != 3:
+            indices += [100]
+            segments += [0]
+        else:
+            indices += indice[1:-1]
+            segments += segment[1:-1]
+    segments = [0] + segments + [0]
+    indices = [101] + indices + [102]
+    return indices,segments
+
+def convert_single_example(ex_index, example, label_map, max_seq_length,
+                           wordid_map, tokenizer,  num_words=1, num_unk=1):
 
     if isinstance(example, PaddingInputExample): 
         return InputFeatures(
@@ -347,24 +371,25 @@ def convert_single_example(ex_index, example, label_list, max_seq_length,
     
     input_ids = []
     # char based
-    sequence =  list(example.text)
-    sequence_length = len(sequence) if len(sequence) <= FLAGS.max_seq_length else FLAGS.max_seq_length
-    sequence.insert(0, "[CLS]")
-    sequence.append("[SEP]")
-    for w in sequence:
-        num_words += 1
-        if w in wordid_map:
-            input_ids.append(wordid_map[w])
-        elif _is_whitespace(w):
-            input_ids.append(wordid_map["[unused1]"])
-        else:
-            num_unk += 1
-            input_ids.append(0)
-    input_mask = [1] * len(sequence)
+    sequence =  example.text
+    input_ids, _ = get_ids_seg(sequence, tokenizer)
+    sequence_length = len(input_ids) if len(input_ids) <= max_seq_length else max_seq_length
+#    for w in sequence:
+#        num_words += 1
+#        if w in wordid_map:
+#            input_ids.append(wordid_map[w])
+#        elif _is_whitespace(w):
+#            input_ids.append(wordid_map["[unused1]"])
+#        else:
+#            num_unk += 1
+#            input_ids.append(0)
+    input_mask = [1] * len(input_ids)
     label_id = [label_map[l] for l in example.label]
-    label_id.insert(0,0)
-    label_id.append(0)
-    segment_ids = [0] * FLAGS.max_seq_length
+    label_id.insert(0,3)
+    label_id.append(3)
+    segment_ids = [0] * max_seq_length
+
+    assert len(label_id) == len(input_ids)
 
     while len(input_ids) < max_seq_length:
         input_ids.append(0)
@@ -431,15 +456,6 @@ def main(_):
     processor = processors[task_name]()
     label_list = processor.get_labels()
 
-    run_config = tf.contrib.tpu.RunConfig(
-        model_dir=FLAGS.output_dir,
-        save_checkpoints_steps=FLAGS.save_checkpoints_steps,
-        tpu_config=tf.contrib.tpu.TPUConfig(
-            iterations_per_loop=FLAGS.iterations_per_loop,
-            num_shards=4,
-            per_host_input_for_training=tf.contrib.tpu.InputPipelineConfig.PER_HOST_V2,
-            )
-        )
 
     train_examples = None
     num_train_steps = None
@@ -453,6 +469,17 @@ def main(_):
 
     num_warmup_steps = int(each_num_train_steps * FLAGS.warmup_proportion)
     
+    run_config = tf.contrib.tpu.RunConfig(
+        model_dir=FLAGS.output_dir,
+#        save_checkpoints_steps=FLAGS.save_checkpoints_steps,
+        save_checkpoints_steps=total_num_train_steps,
+        tpu_config=tf.contrib.tpu.TPUConfig(
+            iterations_per_loop=FLAGS.iterations_per_loop,
+            num_shards=4,
+            per_host_input_for_training=tf.contrib.tpu.InputPipelineConfig.PER_HOST_V2,
+            )
+        )
+
     model_fn = model_fn_builder(
         bert_config=bert_config,
         num_labels=len(label_list),
@@ -485,7 +512,6 @@ def main(_):
         seq_length=FLAGS.max_seq_length,
         is_training=True,
         drop_remainder=True )
-#    estimator.train(input_fn=train_input_fn, max_steps=num_train_steps)
 
     eval_examples = processor.get_dev_examples(FLAGS.data_dir)
     num_actual_eval_examples = len(eval_examples) 
@@ -564,6 +590,7 @@ def main(_):
         _, _, f1 = micro_f1("./models/test_results_epoch_{}.tsv".format(epoch))
         if f1 > best_f1:
             best_f1 = f1
+            best_epoch = epoch
     tf.logging.info("Best F1 score is {} in epoch {}".format(best_f1, best_epoch))
 
 
