@@ -13,8 +13,8 @@ def micro_f1(file):
     datasets = read_dataset(file)
     TP = FP = FN = 0 
     for idx, data in enumerate(datasets):
-        pred = int(eval(data.split("###")[0])[0])
-        gold = int(eval(data.split("###")[1])[0])
+        pred = int(eval(data.split("\t")[0]))
+        gold = int(eval(data.split("\t")[1]))
         if pred == 1 and pred == gold:
             TP += 1
         elif pred == 1 and pred != gold:
@@ -28,4 +28,5 @@ def micro_f1(file):
     return P, R, F1
 
 if __name__ == "__main__":
-    micro_f1("./models/disambi/test_results_epoch_0.tsv")
+#    micro_f1("./models/disambi/test_results_epoch_0.tsv")
+    micro_f1("./models/test_results.tsv")

@@ -78,34 +78,58 @@ def bert_crf(bert_config, is_training, input_ids, segment_ids,input_mask,
 def bert_mlp(bert_config, is_training, input_ids, segment_ids,input_mask,
                label_ids, sequence_length, num_labels,  use_one_hot_embeddings):
 
-    batch_size = tf.shape(input_ids)[0]
     bert_out = bert(bert_config, is_training, input_ids,
                     input_mask, segment_ids, use_one_hot_embeddings, task_type="binary")
 #    hidden_size = tf.shape(bert_out)[-1]
     hidden_size = 768
     bert_out = tf.reshape(bert_out, [-1, hidden_size])
-    logits = linear_layer(bert_out, hidden_size, num_labels, "linear")
     if is_training:
-#        logits = layer_norm_and_dropout(logits, 0.9)
-        logits = layer_norm(logits)
-    else:
-        logits = layer_norm(logits)
-    with tf.variable_scope("loss"):
-#        probabilities = tf.nn.softmax(logits, axis=-1)
-        predictions = tf.argmax(logits, axis=-1, output_type=tf.int32)
-        log_probs = tf.nn.log_softmax(logits, axis=-1)
-        one_hot_labels = tf.one_hot(label_ids, depth=num_labels, dtype=tf.float32)
-        per_example_loss = -tf.reduce_sum(one_hot_labels * log_probs, axis=-1)
-        loss = tf.reduce_mean(per_example_loss)
-    return (loss, loss, logits, predictions)
+         bert_out = tf.nn.dropout(bert_out, keep_prob=0.9)
+    logits = linear_layer(bert_out, hidden_size, num_labels, "linear")
+    log_probs = tf.nn.log_softmax(logits, axis=-1)
+    probabilities = tf.nn.softmax(logits, axis=-1)
+    predictions = tf.argmax(probabilities, axis=-1, output_type=tf.int32)
+#        probs = tf.nn.softmax(logits, axis=-1)
+    one_hot_labels = tf.one_hot(label_ids, depth=num_labels, dtype=tf.float32)
+    per_example_loss = -tf.reduce_sum(one_hot_labels * log_probs, axis=-1)
+    loss = tf.reduce_mean(per_example_loss)
+#        loss = focal_loss(probs, one_hot_labels)
+#        loss = multi_category_focal_loss2_fixed(probs, one_hot_labels)
+#    return (loss, loss, logits, predictions)
+    return (loss, loss, logits, probabilities)
+
+def focal_loss(y_pred, y_gold, gamma=2, alpha=0.25):
+    return -tf.reduce_mean(alpha * tf.multiply(tf.pow(y_gold, gamma), tf.log(y_pred)))
+
+def multi_category_focal_loss2_fixed(y_pred, y_true):
+    epsilon = 1.e-7
+    gamma=2.
+    alpha = tf.constant(0.5, dtype=tf.float32)
+
+    y_true = tf.cast(y_true, tf.float32)
+    y_pred = tf.clip_by_value(y_pred, epsilon, 1. - epsilon)
+
+    alpha_t = y_true*alpha + (tf.ones_like(y_true)-y_true)*(1-alpha)
+    y_t = tf.multiply(y_true, y_pred) + tf.multiply(1-y_true, 1-y_pred)
+    ce = -tf.log(y_t)
+    weight = tf.pow(tf.subtract(1., y_t), gamma)
+    fl = tf.multiply(tf.multiply(weight, ce), alpha_t)
+    loss = tf.reduce_mean(fl)
+    return loss
 
 def weight_variable(shape):
-    initial = tf.truncated_normal(shape, stddev=0.1)
-    return tf.Variable(initial)
+#    initial = tf.truncated_normal(shape, stddev=0.1)
+    initial = tf.get_variable("weight",
+                              shape, 
+                              initializer=tf.truncated_normal_initializer(stddev=0.02))
+    return initial
 
 def bias_variable(shape):
-    initial = tf.constant(0.1, shape=shape)
-    return tf.Variable(initial)
+    initial = tf.get_variable("bias",
+                              shape,
+                              initializer=tf.zeros_initializer())
+#    initial = tf.constant(0.1, shape=shape)
+    return initial
 
 def lstm_cell(hidden_size):
     cell = rnn.LSTMCell(hidden_size,

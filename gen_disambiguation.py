@@ -63,9 +63,9 @@ def gen_disambi(infile, outfile):
             total_entity += len(candi_entity)
             if not candi_entity:
                 continue
-            if len(candi_entity) > 20:
+            if len(candi_entity) > 4:
                 max_leng += 1
-#                continue
+                continue
             for centity_id in candi_entity:
                 if centity_id not in id2abstract:
                     continue
@@ -91,9 +91,11 @@ def divide_set(infile):
     test_writer = codecs.open("./data/disambi/test.txt", "w", "utf-8")
     datasets = read_dataset(infile)
     total_line = int(subprocess.getoutput("wc -l {}".format(infile)).split()[0])
-#    total_line = 10000
+    total_line = 10000
     logging.info("total_line: {}".format(total_line))
     for idx, data in enumerate(datasets):
+        if idx > total_line:
+            break
         if idx < 0.8 * total_line:
             train_writer.write(data)
         elif idx < 0.9 * total_line:

@@ -16,7 +16,12 @@ def hash_id2abstract(kb_data, id2abstract_pkl):
         data = eval(data)
         if len(data["data"]) == 0 or "object" not in data["data"][0]:
             continue
-        if data["data"][0]["predicate"] == "摘要":
-            id2abstract[data["subject_id"]] = (data["subject"], data["data"][0]["object"])
+#        if data["data"][0]["predicate"] == "摘要":
+#            id2abstract[data["subject_id"]] = (data["subject"], data["data"][0]["object"])
+        text  = "[type]" + " ".join(data["type"])
+        for d in data["data"]:
+            text += "[" + d["predicate"] + "]" + d["object"]
+        id2abstract[data["subject_id"]] = (data["subject"], text)
+
     pkl.dump(id2abstract, open(id2abstract_pkl, "wb"))
 

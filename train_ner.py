@@ -27,9 +27,7 @@ flags.DEFINE_string("data_dir", "./data/",
                     "train/test data dir")
 flags.DEFINE_string("serving_model_save_path", "./pb_model/",
                     "dir for pb output")
-flags.DEFINE_string("task_name", "disambi",
-                    "different task use different processor")
-flags.DEFINE_bool("sequence_task", False,
+flags.DEFINE_string("task_name", "ner",
                     "different task use different processor")
 flags.DEFINE_string("vocab_file", "./hit_bert/vocab.txt",
                     "path to vocab file")
@@ -39,7 +37,7 @@ flags.DEFINE_string("init_checkpoint", "./hit_bert/bert_model.ckpt",
 flags.DEFINE_string("bert_config_file", "./hit_bert/bert_config.json",
                     "bert config file for ckpt model")
 
-flags.DEFINE_integer("max_seq_length", 200, 
+flags.DEFINE_integer("max_seq_length", 52, 
                      "max sequence length for each sentence")
 
 flags.DEFINE_bool("do_train", True, "excute train steps")
@@ -51,7 +49,7 @@ flags.DEFINE_integer("eval_batch_size", 16, "eval batch size")
 flags.DEFINE_integer("predict_batch_size", 16, "predict batch size")
 
 flags.DEFINE_float("learning_rate", 3e-5, "learning rate")
-flags.DEFINE_integer("num_train_epochs", 5,
+flags.DEFINE_integer("num_train_epochs", 1,
                      "train epoch, for NER task, 3 is enough")
 
 flags.DEFINE_integer("save_checkpoints_steps", 2000, 
@@ -61,6 +59,11 @@ flags.DEFINE_integer("iterations_per_loop", 2000,
 
 flags.DEFINE_float("warmup_proportion", 0.1, 
                    "Proportion of training to perform linear learning rate warmup for.")
+
+if FLAGS.task_name == "disambi":
+    MODEL = bert_mlp
+elif FLAGS.task_name == "ner":
+    MODEL = bert_crf
 
 class InputExample(object):
     """A single training/test example for simple sequence classification."""
@@ -149,8 +152,7 @@ class NERProcessor(object):
             guid = "%s-%s" % (set_type, i)
             label = eval(line[1])
             textA = tokenization.convert_to_unicode(line[0])
-            textB = None
-            examples.append(InputExample(guid=guid, textA=textA, textB=textB, label=label))
+            examples.append(InputExample(guid=guid, textA=textA, textB=None, label=label))
         # examples 包含了所有数据的列表, 其中每个数据类型为 InputExample
         # 对于训练数据进行随机打乱
         if set_type == "train":
@@ -174,7 +176,7 @@ class DisambiProcessor(object):
 
     def get_labels(self):
         """Gets thie list of BIO labels for this dataset"""
-        return [0, 1]
+        return ["0", "1"]
 
     def _create_examples(self, lines, set_type="test"):
         """Creates examples for the training and dev sets.
@@ -187,10 +189,12 @@ class DisambiProcessor(object):
         for (i, line) in enumerate(lines):
             line = eval(line.strip())
             guid = "%s-%s" % (set_type, i)
-            label = int(line["tag"])
-            textA = "$" + line["query_entity"] + "$" + line["query_text"]
+            label = line["tag"]
+#            textA = "$" + line["query_entity"] + "$" + line["query_text"]
+#            textB = "$" + line["candi_entity"] + "$" + line["candi_abstract"]
+            textA = line["query_text"]
+            textB = line["candi_abstract"]
             textA = tokenization.convert_to_unicode(textA)
-            textB = "$" + line["candi_entity"] + "$" + line["candi_abstract"]
             textB = tokenization.convert_to_unicode(textB)
             examples.append(InputExample(guid=guid, textA=textA, textB=textB, label=label))
         # examples 包含了所有数据的列表, 其中每个数据类型为 InputExample
@@ -204,10 +208,10 @@ class PaddingInputExample(object):
 
 def file_based_input_fn_builder(input_file, seq_length, is_training, drop_remainder):
     """Creates an `input_fn` closure to be passed to TPUEstimator."""
-
+    label_len = seq_length if FLAGS.task_name == "ner" else 1
     name_to_features = {
         "input_ids": tf.FixedLenFeature([seq_length], tf.int64),
-        "label_ids": tf.FixedLenFeature([1], tf.int64),
+        "label_ids": tf.FixedLenFeature([label_len], tf.int64),
         "segment_ids": tf.FixedLenFeature([seq_length], tf.int64),
         "input_mask": tf.FixedLenFeature([seq_length], tf.int64),
         "sequence_length": tf.FixedLenFeature([1], tf.int64),
@@ -244,8 +248,8 @@ def  model_fn_builder(bert_config, num_labels, init_checkpoint, learning_rate, n
 
     def model_fn(features, labels,  mode, params):
         tf.logging.info("*** Features ***")
-        for name in sorted(features.keys()):
-            tf.logging.info("  name = %s, shape = %s" % (name, features[name].shape))
+#        for name in sorted(features.keys()):
+#            tf.logging.info("  name = %s, shape = %s" % (name, features[name].shape))
 
         input_ids = features["input_ids"]
         segment_ids = features["segment_ids"]
@@ -260,15 +264,7 @@ def  model_fn_builder(bert_config, num_labels, init_checkpoint, learning_rate, n
             is_real_example = tf.ones(tf.shape(label_ids)[0], dtype=tf.float32)
         is_training = (mode == "train")
 
-#        (total_loss, per_example_loss, logits, pred_ids) = bert_blstm_crf(
-#            bert_config, is_training, input_ids, segment_ids, input_mask, 
-#            label_ids, sequence_length, num_labels, use_one_hot_embeddings)
-
-#        (total_loss, per_example_loss, logits, pred_ids) = bert_crf(
-#            bert_config, is_training, input_ids, segment_ids, input_mask, 
-#            label_ids, sequence_length, num_labels, use_one_hot_embeddings)
-
-        (total_loss, per_example_loss, logits, pred_ids) = bert_mlp(
+        (total_loss, per_example_loss, logits, pred_ids) = MODEL(
             bert_config, is_training, input_ids, segment_ids, input_mask, 
             label_ids, sequence_length, num_labels, use_one_hot_embeddings)
 
@@ -296,17 +292,17 @@ def  model_fn_builder(bert_config, num_labels, init_checkpoint, learning_rate, n
                 train_op=train_op,
                 scaffold_fn=scaffold_fn, )
         elif mode == tf.estimator.ModeKeys.EVAL:
-            def metric_fn(per_example_loss, label_ids, logits, is_real_example):
-                predictions = tf.argmax(logits, axis=-1, output_type=tf.int32)
-                one_ids = tf.reshape(label_ids, [-1, 1])
-                is_real_example = tf.reshape(is_real_example, [-1, 1])
-                accuracy = tf.metrics.accuracy(
-                    labels=one_ids, predictions=predictions, weights=is_real_example, )
-                loss = tf.metrics.mean(values=per_example_loss, weights=is_real_example)
-                return {
-                    "eval_accuracy": accuracy,
-                    "eval_loss": loss,
-                }
+#            def metric_fn(per_example_loss, label_ids, logits, is_real_example):
+#                predictions = tf.argmax(logits, axis=-1, output_type=tf.int32)
+#                one_ids = tf.reshape(label_ids, [-1, 1])
+#                is_real_example = tf.reshape(is_real_example, [-1, 1])
+#                accuracy = tf.metrics.accuracy(
+#                    labels=one_ids, predictions=predictions, weights=is_real_example, )
+#                loss = tf.metrics.mean(values=per_example_loss, weights=is_real_example)
+#                return {
+#                    "eval_accuracy": accuracy,
+#                    "eval_loss": loss,
+#                }
 
             output_spec = tf.contrib.tpu.TPUEstimatorSpec(
                 mode=mode,
@@ -408,13 +404,30 @@ def get_ids_seg(text,tokenizer):
 #    indices = [101] + indices + [102]
     return indices
 
+def _truncate_seq_pair(tokens_a, tokens_b, max_length):
+    """Truncates a sequence pair in place to the maximum length."""
+    # This is a simple heuristic which will always truncate the longer sequence
+    # one token at a time. This makes more sense than truncating an equal percent
+    # of tokens from each, since if one sequence is very short then each token
+    # that's truncated likely contains more information than a longer sequence.
+    while True:
+        total_length = len(tokens_a) + len(tokens_b)
+        if total_length <= max_length:
+          break
+        if len(tokens_a) > len(tokens_b):
+          tokens_a.pop()
+        else:
+          tokens_b.pop()
+    return "".join(tokens_a), "".join(tokens_b)
+    
+
 def convert_single_example(ex_index, example, label_map, max_seq_length,
                            wordid_map, tokenizer,  num_words=1, num_unk=1):
 
     if isinstance(example, PaddingInputExample): 
         return InputFeatures(
             input_ids=[0] * max_seq_length,
-            label_ids=[label_map["O"]] * max_seq_length,
+            label_ids=[0] * max_seq_length,
             sequence_length=0,
             is_real_example=False, )
     
@@ -425,15 +438,16 @@ def convert_single_example(ex_index, example, label_map, max_seq_length,
         label_id = [0] + [label_map[l] for l in example.label] + [0]
         segment_ids = [0] * len(input_ids)
     else:
-        if len(example.textA) + len(example.textB) + 3 > max_seq_length:
-            if len(example.textA) >= max_seq_length - 3:
-                example.textA = example.textA[:int(max_seq_length/2-3)]
-            if len(example.textB) >= max_seq_length - 3:
-                example.textB = example.textB[:int(max_seq_length/2-3)]
-            if len(example.textA) > len(example.textB):
-                example.textA = example.textA[:(max_seq_length-len(example.textB)-4)]
-            else:
-                example.textB = example.textB[:(max_seq_length-len(example.textB)-4)]
+        example.textA, example.textB = _truncate_seq_pair(list(example.textA), list(example.textB), max_seq_length - 3)
+#        if len(example.textA) + len(example.textB) + 3 > max_seq_length:
+#            if len(example.textA) >= max_seq_length - 3:
+#                example.textA = example.textA[:int(max_seq_length/2-3)]
+#            if len(example.textB) >= max_seq_length - 3:
+#                example.textB = example.textB[:int(max_seq_length/2-3)]
+#            if len(example.textA) > len(example.textB):
+#                example.textA = example.textA[:(max_seq_length-len(example.textB)-4)]
+#            else:
+#                example.textB = example.textB[:(max_seq_length-len(example.textB)-4)]
 
         input_ids = [101] + get_ids_seg(example.textA, tokenizer) + [102] + get_ids_seg(example.textB, tokenizer) + [102]
         segment_ids = [0] * (len(example.textA) + 2) + [1] * (len(example.textB) + 1)
@@ -458,7 +472,7 @@ def convert_single_example(ex_index, example, label_map, max_seq_length,
         segment_ids.append(0)
 
     input_ids = input_ids[:max_seq_length]
-    label_id = label_id[:max_seq_length] if FLAGS.sequence_task else [label_id[0]]
+    label_id = label_id[:max_seq_length] if FLAGS.task_name == "ner" else [label_id[0]]
     input_mask = input_mask[:max_seq_length]
     segment_ids = segment_ids[:max_seq_length]
 
@@ -468,7 +482,7 @@ def convert_single_example(ex_index, example, label_map, max_seq_length,
     if ex_index < 5:
         tf.logging.info("*** Example ***")
         tf.logging.info("guid: %s" % (example.guid))
-        tf.logging.info("tokens: %s" % "".join("[CLS]" + example.textA + "[SEP]" +  example.textB + "[SEP]"))
+        tf.logging.info("tokens: %s" % "".join("[CLS]" + str(example.textA) + "[SEP]" +  str(example.textB) + "[SEP]"))
         tf.logging.info("input_ids: %s" % " ".join([str(x) for x in input_ids]))
         tf.logging.info("input_mask: %s" % " ".join([str(x) for x in input_mask]))
         tf.logging.info("segment_ids: %s" % " ".join([str(x) for x in segment_ids]))
@@ -636,20 +650,20 @@ def main(_):
             for (i, prediction) in enumerate(result):
                 pred_ids = [prediction["pred_ids"]]
                 sequence_length = prediction["sequence_length"]
-                len_seq = sequence_length[0] if FLAGS.sequence_task else 2
+                len_seq = sequence_length[0] if FLAGS.task_name == "ner" else 2
                 correct += (prediction["label_ids"] == pred_ids)[:len_seq+1].sum()
                 total_count += len_seq - 1
                 result = [str(r) for r in  pred_ids][:len_seq+1]
                 label_ids = [str(l) for l in prediction["label_ids"]][:len_seq+1]
                 if i >= num_actual_predict_examples:
                     break
-                output_line = str(result)  + "###" + str(label_ids) + "\n"
+                output_line = str(pred_ids) + "###" + str(result)  + "###" + str(label_ids) + "\n"
                 writer.write(output_line)
                 num_written_lines += 1
 
         assert num_written_lines == num_actual_predict_examples
         tf.logging.info("*** Accuracy for BIO: {}".format(correct/total_count))
-        if not FLAGS.sequence_task:
+        if not FLAGS.task_name == "ner":
             continue
         _, _, f1 = micro_f1("./models/test_results_epoch_{}.tsv".format(epoch))
         if f1 > best_f1:
