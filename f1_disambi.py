@@ -8,7 +8,7 @@ from __future__ import print_function
 
 from gen_ner import read_dataset
 
-def micro_f1(file):
+def disambi_f1(file):
     label_list = [0, 1]
     datasets = read_dataset(file)
     TP = FP = FN = 0 
@@ -28,5 +28,5 @@ def micro_f1(file):
     return P, R, F1
 
 if __name__ == "__main__":
-#    micro_f1("./models/disambi/test_results_epoch_0.tsv")
-    micro_f1("./models/test_results.tsv")
+#    disambi_f1("./models/disambi/test_results_epoch_0.tsv")
+    disambi_f1("./models/disambi/test_results.tsv")

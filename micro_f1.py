@@ -58,4 +58,4 @@ def decode_ner(line):
     return res
 
 if __name__ == "__main__":
-    micro_f1("./models/test_results_epoch_4.tsv")
+    micro_f1("./models/disambi/test_results_epoch_0.tsv")

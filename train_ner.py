@@ -16,6 +16,7 @@ import tokenization
 from tokenization import _is_whitespace 
 from tokenizer import Tokenizer
 from micro_f1 import micro_f1
+from f1_disambi import disambi_f1
 import modeling
 from config import *
 from create_model import bert_blstm_crf, bert_crf, bert_mlp
@@ -31,7 +32,7 @@ flags.DEFINE_string("task_name", "ner",
                     "different task use different processor")
 flags.DEFINE_string("vocab_file", "./hit_bert/vocab.txt",
                     "path to vocab file")
-flags.DEFINE_string("output_dir", "./models/disambi/", "ckpt dir")
+flags.DEFINE_string("output_dir", "./models/ner/", "ckpt dir")
 flags.DEFINE_string("init_checkpoint", "./hit_bert/bert_model.ckpt",
                     "path to bert model from google or hit")
 flags.DEFINE_string("bert_config_file", "./hit_bert/bert_config.json",
@@ -49,7 +50,7 @@ flags.DEFINE_integer("eval_batch_size", 16, "eval batch size")
 flags.DEFINE_integer("predict_batch_size", 16, "predict batch size")
 
 flags.DEFINE_float("learning_rate", 3e-5, "learning rate")
-flags.DEFINE_integer("num_train_epochs", 1,
+flags.DEFINE_integer("num_train_epochs", 3,
                      "train epoch, for NER task, 3 is enough")
 
 flags.DEFINE_integer("save_checkpoints_steps", 2000, 
@@ -653,19 +654,23 @@ def main(_):
                 len_seq = sequence_length[0] if FLAGS.task_name == "ner" else 2
                 correct += (prediction["label_ids"] == pred_ids)[:len_seq+1].sum()
                 total_count += len_seq - 1
-                result = [str(r) for r in  pred_ids][:len_seq+1]
+                if FLAGS.task_name == "ner":
+                    result = [str(r) for r in  pred_ids[0]][:len_seq+1]
+                elif FLAGS.task_name == "disambi":
+                    result = [str(r) for r in  pred_ids][:len_seq+1]
                 label_ids = [str(l) for l in prediction["label_ids"]][:len_seq+1]
                 if i >= num_actual_predict_examples:
                     break
-                output_line = str(pred_ids) + "###" + str(result)  + "###" + str(label_ids) + "\n"
+                output_line = str(result)  + "###" + str(label_ids) + "\n"
                 writer.write(output_line)
                 num_written_lines += 1
 
         assert num_written_lines == num_actual_predict_examples
         tf.logging.info("*** Accuracy for BIO: {}".format(correct/total_count))
-        if not FLAGS.task_name == "ner":
-            continue
-        _, _, f1 = micro_f1("./models/test_results_epoch_{}.tsv".format(epoch))
+        if FLAGS.task_name == "ner":
+            _, _, f1 = micro_f1("./models/ner/test_results_epoch_{}.tsv".format(epoch))
+        elif FLAGS.task_name == "disambi":
+            _, _, f1 = disambi_f1("./models/disambi/test_results_epoch_{}.tsv".format(epoch))
         if f1 > best_f1:
             best_f1 = f1
             best_epoch = epoch
