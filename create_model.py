@@ -9,7 +9,7 @@ from __future__ import print_function
 import tensorflow as tf
 from tensorflow.contrib import rnn
 from tensorflow.contrib import crf
-from config import *
+from ner_config import *
 import modeling
 from modeling import layer_norm_and_dropout, layer_norm
 import numpy as np

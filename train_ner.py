@@ -18,7 +18,7 @@ from tokenizer import Tokenizer
 from micro_f1 import micro_f1
 from f1_disambi import disambi_f1
 import modeling
-from config import *
+from ner_config import *
 from create_model import bert_blstm_crf, bert_crf, bert_mlp
 
 flags = tf.flags
@@ -26,7 +26,7 @@ FLAGS = flags.FLAGS
 
 flags.DEFINE_string("data_dir", "./data/", 
                     "train/test data dir")
-flags.DEFINE_string("serving_model_save_path", "./pb_model/",
+flags.DEFINE_string("serving_model_save_path", "./pb_model/ner/",
                     "dir for pb output")
 flags.DEFINE_string("task_name", "ner",
                     "different task use different processor")
@@ -440,26 +440,11 @@ def convert_single_example(ex_index, example, label_map, max_seq_length,
         segment_ids = [0] * len(input_ids)
     else:
         example.textA, example.textB = _truncate_seq_pair(list(example.textA), list(example.textB), max_seq_length - 3)
-#        if len(example.textA) + len(example.textB) + 3 > max_seq_length:
-#            if len(example.textA) >= max_seq_length - 3:
-#                example.textA = example.textA[:int(max_seq_length/2-3)]
-#            if len(example.textB) >= max_seq_length - 3:
-#                example.textB = example.textB[:int(max_seq_length/2-3)]
-#            if len(example.textA) > len(example.textB):
-#                example.textA = example.textA[:(max_seq_length-len(example.textB)-4)]
-#            else:
-#                example.textB = example.textB[:(max_seq_length-len(example.textB)-4)]
 
         input_ids = [101] + get_ids_seg(example.textA, tokenizer) + [102] + get_ids_seg(example.textB, tokenizer) + [102]
         segment_ids = [0] * (len(example.textA) + 2) + [1] * (len(example.textB) + 1)
         label_id = [int(example.label)]* len(input_ids)
 
-
-#    if FLAGS.sequence_task:
-#        label_id = [0] + [label_map[l] for l in example.label] + [0]
-#    else:
-#        label_id = int(example.label)
-    
     sequence_length = len(input_ids) if len(input_ids) <= max_seq_length else max_seq_length
     input_mask = [1] * len(input_ids)
     
@@ -607,16 +592,6 @@ def main(_):
                                                seq_length=FLAGS.max_seq_length,
                                                is_training=False,
                                                drop_remainder=eval_drop_remainder,)
-#    estimator.evaluate(input_fn=eval_input_fn, steps=eval_steps)
-
-#    result = estimator.evaluate(input_fn=eval_input_fn, steps=eval_steps)
-#
-#    output_eval_file = os.path.join(FLAGS.output_dir, "eval_results.txt")
-#    with tf.gfile.GFile(output_eval_file, "w") as writer:
-#        tf.logging.info("***** Eval results *****")
-#        for key in sorted(result.keys()):
-#            tf.logging.info("  %s = %s", key, str(result[key]))
-#            writer.write("%s = %s\n" % (key, str(result[key])))
 
     predict_examples = processor.get_test_examples(FLAGS.data_dir)
     num_actual_predict_examples = len(predict_examples)
@@ -638,8 +613,12 @@ def main(_):
     best_f1 = 0
     best_epoch = 0
     for epoch in range(int(total_num_train_steps/each_num_train_steps)):
-        estimator.train(input_fn=train_input_fn, max_steps=each_num_train_steps*(epoch+1))
-        estimator.evaluate(input_fn=eval_input_fn, steps=eval_steps)
+        if FLAGS.do_train:
+            estimator.train(input_fn=train_input_fn, max_steps=each_num_train_steps*(epoch+1))
+        if FLAGS.do_eval:
+            estimator.evaluate(input_fn=eval_input_fn, steps=eval_steps)
+        if not FLAGS.do_predict:
+            continue
         result = estimator.predict(input_fn=predict_input_fn)
 
         tf.logging.info("***** Test results for epoch {} *****".format(epoch))
@@ -675,6 +654,9 @@ def main(_):
             best_f1 = f1
             best_epoch = epoch
     tf.logging.info("Best F1 score is {} in epoch {}".format(best_f1, best_epoch))
+
+    estimator._export_to_tpu = False
+    estimator.export_savedmodel(FLAGS.serving_model_save_path, serving_input_receiver_fn)
 
 
 if __name__ == "__main__":

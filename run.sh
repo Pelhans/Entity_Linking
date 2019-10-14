@@ -21,4 +21,4 @@ python3 run_classifier.py \
   --learning_rate=3e-5 \
   --num_train_epochs=1.0 \
   --output_dir=$CUR_PATH/models/disambi \
-  --serving_model_save_path=$CUR_PATH/pb_file/
+  --serving_model_save_path=$CUR_PATH/pb_model/

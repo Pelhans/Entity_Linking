@@ -1,6 +1,7 @@
 data/*
 hit_bert/*
 pb_file/*
+pb_model/*
 models/*
 original_data/*
 *.pyc

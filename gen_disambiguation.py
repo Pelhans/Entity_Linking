@@ -15,6 +15,7 @@ import logging
 import _pickle as pkl
 from tqdm import tqdm
 from gen_ner import read_dataset
+from build_name_dict import build_name_dict
 from candidate_entity_generation import gen_candidate_entity
 from subject_id2text import hash_id2abstract
 
